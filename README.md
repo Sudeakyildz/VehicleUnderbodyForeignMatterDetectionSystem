@@ -1,243 +1,79 @@
-# 🚗 Araç Altı Güvenlik Tespit Sistemi
+# 🚗 Araç Altı Yabancı Madde Tespit Sistemi
 
-Bu proje, **araç altı görüntülerinde yabancı madde/tehlikeli madde tespiti** yapan gelişmiş bir yapay zeka güvenlik sistemidir. Güvenlik kontrol noktalarında otomatik olarak araç altında tehlikeli madde olup olmadığını tespit eder.
+Araç altı görüntüsünde **yabancı madde / şüpheli nesne var mı yok mu** sorusunu yapay zekâ ile yanıtlayan bir karar-destek sistemidir. Güvenlik personeline yardımcı olmak için tasarlanmıştır; **tek başına karar verici değildir**.
 
-## 🎯 Proje Amacı
+- 🚨 `YabanciMaddeOlan`: araç altında yabancı madde var
+- ✅ `YabanciMaddeOlmayan`: araç altı temiz
 
-- **Güvenlik Kontrolü**: Araç altı görüntülerinde yabancı madde tespiti
-- **Otomatik Tespit**: Yapay zeka ile anlık analiz
-- **2 Kategorili Sınıflandırma**:
-  - 🚨 **YabanciMaddeOlan** (Tehlikeli madde var - Güvenlik Riski!)
-  - ✅ **YabanciMaddeOlmayan** (Araç altı temiz - Güvenli)
+## Nasıl çalışır?
 
-## 🚀 Kurulum
-
-### Gereksinimler
-- Python 3.8+
-- TensorFlow 2.8+
-- OpenCV 4.5+
-- NumPy, Matplotlib, Seaborn
-- Diğer kütüphaneler (requirements.txt'de listelenmiştir)
-
-### Kurulum Adımları
-
-1. **Repository'yi klonlayın:**
-```bash
-git clone <repository-url>
-cd CNN
+```
+Kamera/Video → (ön filtre: araç altı görünüyor mu?) → EfficientNet sınıflandırıcı
+             → son N tahminin çoğunluk kararı → alarm + ses + kayıt (detections/)
 ```
 
-2. **Kütüphaneleri yükleyin:**
+1. **Ön filtre** (klasik OpenCV): kadrajda koyu, geniş, yatay yapılı bir araç altı var mı? (`--no-gate` ile kapatılır)
+2. **Model**: ImageNet ile ön eğitilmiş EfficientNet (transfer learning). Çıktı: `P(YabanciMaddeOlan)`.
+3. **Karar**: olasılık, eğitimde doğrulama setinden seçilen **eşiğin** (varsayılan 0.40, yani 0.5'ten daha hassas) üstündeyse tehlikeli sayılır. Tek kareye değil, son birkaç kareye bakılır (yanlış alarm azalır).
+4. **Kayıt**: alarmda görüntü `detections/` klasörüne, zaman ve olasılıkla `detections/log.csv` dosyasına yazılır.
+
+## Kurulum
+
+Python 3.9 – 3.12 önerilir (TensorFlow henüz çok yeni Python sürümlerini desteklemeyebilir).
+
 ```bash
 pip install -r requirements.txt
 ```
 
-3. **Sistemi test edin:**
-```bash
-python quick_improve.py
+## Kullanım
+
+| Amaç | Komut |
+|------|-------|
+| Modeli eğit | `python improved_training.py` |
+| Ensemble eğit (3 model) | `python ensemble_training.py` |
+| Test setini değerlendir | `python quick_improve.py` |
+| Tek görüntü test et | `python quick_improve.py --image yol/gorsel.jpg` |
+| Canlı kamera | `python improved_realtime.py` |
+| Video dosyasıyla test | `python improved_realtime.py --video test.mp4` |
+| Ensemble ile canlı | `python improved_realtime.py --meta ensemble_meta.json` |
+
+Canlı kontroller: **Q** çıkış, **R** kaynağı yeniden aç, **G** ön filtreyi aç/kapat.
+
+## Proje yapısı
+
+```
+common.py                  Ortak ayarlar, ön işleme, Predictor (eğitim = test = canlı aynı ön işleme)
+improved_training.py       2 aşamalı eğitim (başlık → ince ayar), eşik seçimi, model_meta.json
+ensemble_training.py       EfficientNetB0/B1/B2 ensemble, ensemble_meta.json
+quick_improve.py           Tüm test setini değerlendirir, eşik analizi, tek görüntü tahmini
+improved_realtime.py       Canlı tespit (yumuşatma, alarm, kayıt)
+AracAltiGorseller_Train/   Eğitim verisi (YabanciMaddeOlan / YabanciMaddeOlmayan)
+AracAltiGorseller_Test/    Test verisi
 ```
 
-## 📁 Proje Yapısı
+## Güncel sonuçlar (EfficientNetB0, eşik 0.51, 16 test görüntüsü)
 
-```
-CNN/
-├── AracAltiGorseller_Train/         # Eğitim verisi
-│   ├── YabanciMaddeOlan/           # 33 görüntü (tehlikeli madde)
-│   └── YabanciMaddeOlmayan/        # 42 görüntü (temiz)
-├── AracAltiGorseller_Test/          # Test verisi
-│   ├── YabanciMaddeOlan/           # 8 görüntü (tehlikeli madde)
-│   └── YabanciMaddeOlmayan/        # 8 görüntü (temiz)
-├── improved_training.py             # İyileştirilmiş eğitim scripti
-├── improved_realtime.py             # Gerçek zamanlı tespit sistemi
-├── quick_improve.py                 # Hızlı test ve iyileştirme
-├── ensemble_training.py             # Ensemble model eğitimi
-├── requirements.txt                 # Gerekli kütüphaneler
-├── README.md                        # Bu dosya
-├── improved_vehicle_underneath_model.h5  # İyileştirilmiş model
-├── improved_config.json             # İyileştirilmiş konfigürasyon
-└── *.png                           # Performans grafikleri
-```
+| | Değer |
+|---|---|
+| Tehlikeli yakalama (recall) | 8 / 8 |
+| Yanlış alarm | 2 / 8 temiz görüntü |
+| Doğruluk / ROC-AUC | %88 / 1.00 |
 
-## 🔧 Kullanım
+Bu sayılar **çok küçük ve yapay zekâ ile üretilmiş bir test setinden** gelir; gerçek sahada aynı performans beklenmemelidir. Eşik doğrulama setinden seçildi; test seti eşik analizi için `python quick_improve.py` çalıştırın.
 
-### 1. Hızlı Test ve Analiz
-```bash
-python quick_improve.py
-```
-**Ne yapar:**
-- Mevcut modeli test eder
-- Performans analizi yapar
-- İyileştirme önerileri sunar
-- Konfigürasyon oluşturur
+## Önemli notlar (dürüst durum)
 
-### 2. Model Eğitimi (İyileştirilmiş)
-```bash
-python improved_training.py
-```
-**Özellikler:**
-- Class weights ile dengesiz veri seti yönetimi
-- Agresif veri artırma teknikleri
-- Base model katmanları eğitilebilir
-- Düşük learning rate ile stabil eğitim
+- **Veri azdır ve büyük kısmı yapay zekâ ile üretilmiştir** (75 eğitim + 16 test görüntüsü). Açık veri seti bulunmadığı için bu bir kısıt. Bu yüzden:
+  - Test sonuçları çok güvenilir değildir; 1 görüntü yüzde 6 oynatır.
+  - Model, üretilmiş görüntülerin stiline aşırı uyum sağlamış olabilir; **gerçek kamera görüntüsünde performans düşebilir**.
+  - Gerçek sahadan (farklı araç, ışık, zemin) görüntü toplayıp `Train/Test` klasörlerine eklemek en büyük iyileştirmedir.
+- Eski README'deki "%100 tespit / %0 yanlış negatif" iddiaları kaldırılmıştır; o sonuçlar 16 görüntülük testte ve tutarsız ön işleme ile elde edilmişti.
+- Test görüntüleri eğitim görüntülerinin yakın kopyası olmamalıdır (özellikle aynı prompt'tan üretilenler), aksi halde skor şişer.
+- Eski `improved_vehicle_underneath_model.h5` hatalı ön işlemeyle eğitilmişti ve yeni Keras'ta yüklenmiyor; artık kullanılmıyor (silinebilir). `improved_config.json` da kullanılmıyor (ayarlar kodda).
+- Bu sistem yanlış negatif (kaçırma) üretebilir. Kritik kontrol noktalarında mutlaka manuel kontrol ile birlikte kullanın.
 
-### 3. Gerçek Zamanlı Güvenlik Sistemi
-```bash
-python improved_realtime.py
-```
-**Kontroller:**
-- **Q**: Çıkış
-- **R**: Yeniden başlat
-- **Otomatik**: Araç altı görünür olduğunda tespit
+## Geliştirme fikirleri
 
-## 🧠 İyileştirilmiş Model Mimarisi
-
-### Ana Model (EfficientNetB0)
-- **Base Model**: EfficientNetB0 (Transfer Learning)
-- **Özellik Çıkarma**: Global Average Pooling
-- **Sınıflandırma Katmanları**: 
-  - Dense(1024) → BatchNorm → Dropout(0.3)
-  - Dense(512) → BatchNorm → Dropout(0.2)
-  - Dense(256) → BatchNorm → Dropout(0.1)
-  - Dense(128) → BatchNorm → Dropout(0.1)
-  - Dense(2) → Softmax (2 sınıf)
-
-### İyileştirme Teknikleri
-- **Class Weights**: YabanciMaddeOlan'a 2x ağırlık
-- **Agresif Veri Artırma**: 60° rotasyon, 0.4 kaydırma
-- **Base Model Eğitimi**: Son 20 katman eğitilebilir
-- **Düşük Learning Rate**: 0.00003 (stabil eğitim)
-
-## 📊 Performans Metrikleri
-
-### İyileştirme Öncesi (Kritik Durum)
-- **Genel Doğruluk**: %0.0 ❌
-- **Tehlikeli Madde Tespiti**: %0.0 ❌
-- **Durum**: Sistem tamamen bozuk, güvenlik riski!
-
-### İyileştirme Sonrası (Başarılı)
-- **Genel Doğruluk**: %75 ✅
-- **Tehlikeli Madde Tespiti**: %100 ✅
-- **Yüksek Güven Skorları**: %89.12, %89.99, %92.10
-- **Durum**: Güvenlik için kullanılabilir
-
-### Detaylı Sınıf Performansı
-```
-                     precision    recall  f1-score   support
-
-   YabanciMaddeOlan       0.70      0.88      0.78         8
-YabanciMaddeOlmayan       0.83      0.62      0.71         8
-
-           accuracy                           0.75        16
-          macro avg       0.77      0.75      0.75        16
-       weighted avg       0.77      0.75      0.75        16
-```
-
-## 🎨 Sistem Özellikleri
-
-### **Güvenlik Özellikleri**
-- ✅ **Yüksek Hassasiyet**: Tehlikeli madde tespitinde %100 başarı
-- ✅ **Hızlı Tepki**: Gerçek zamanlı analiz ve anlık sonuçlar
-- ✅ **Güvenilir Sınıflandırma**: %80+ güven skorları
-- ✅ **Otomatik Uyarı**: Tehlikeli madde tespitinde anında bildirim
-
-### **Teknik Özellikler**
-- 🚀 **Transfer Learning**: EfficientNetB0 pre-trained model
-- 🔄 **Veri Artırma**: Araç altı görüntüleri için optimize edilmiş
-- 📊 **Performans İzleme**: Eğitim geçmişi ve metrikler
-- 💾 **Model Yönetimi**: Otomatik kaydetme ve yükleme
-
-## 🔍 Araç Altı Tespit Kategorileri
-
-| Kategori | Açıklama | Güvenlik Riski | Durum |
-|----------|----------|----------------|-------|
-| **YabanciMaddeOlan** | Araç altında tehlikeli madde var | 🚨 **YÜKSEK** | Uyarı gerekli |
-| **YabanciMaddeOlmayan** | Araç altı temiz | ✅ **DÜŞÜK** | Normal geçiş |
-
-## 📈 Test Sonuçları
-
-### **Tehlikeli Madde Tespiti (100% Başarı)**
-- **00.jpg (Tehlikeli)**: %63.8 güvenle "Tehlikeli" ✅
-- **07.jpg (Tehlikeli)**: %89.9 güvenle "Tehlikeli" ✅
-
-### **Temiz Görüntü Tespiti**
-- **34.jpg (Temiz)**: %60.2 güvenle "Tehlikeli" ❌
-- **Diğer temiz görüntüler**: %80+ güvenle "Temiz" ✅
-
-### **Gerçek Zamanlı Performans**
-- **Toplam Tahmin**: 50+ başarılı tahmin
-- **Tehlikeli Madde**: %100 doğru tespit
-- **Sistem Stabilite**: Sürekli çalışma
-
-## ⚠️ Önemli Güvenlik Notları
-
-1. **Kritik Sistem**: Bu sistem güvenlik kontrolü için tasarlanmıştır
-2. **Yanlış Negatif**: %0 (tehlikeli maddeyi kaçırmaz)
-3. **Yanlış Pozitif**: %25 (temizi tehlikeli sanabilir - güvenlik için kabul edilebilir)
-4. **Kullanım**: Güvenlik personeli tarafından kullanılmalıdır
-5. **Doğrulama**: Kritik durumlarda manuel kontrol önerilir
-
-## 🔄 Geliştirme Önerileri
-
-### **1. Performans Artırma**
-- Hedef: %95+ genel doğruluk
-- Daha fazla veri toplama
-- Ensemble model yaklaşımı
-
-### **2. Özellik Geliştirme**
-- Çoklu kamera desteği
-- Ses uyarı sistemi
-- Log kayıt sistemi
-- Web arayüzü
-
-### **3. Güvenlik Geliştirme**
-- Daha fazla tehlikeli madde kategorisi
-- Şüpheli davranış tespiti
-- Entegrasyon API'leri
-
-## 🚀 Kullanım Senaryoları
-
-### **Güvenlik Kontrol Noktaları**
-- 🚔 Polis kontrol noktaları
-- 🏛️ Hükümet binaları
-- 🏢 Kurumsal güvenlik
-- 🚪 Giriş kontrol sistemleri
-
-### **Endüstriyel Uygulamalar**
-- 🏭 Fabrika güvenliği
-- 🚛 Lojistik merkezleri
-- 🚢 Liman güvenliği
-- ✈️ Havaalanı güvenliği
-
-## 🤝 Katkıda Bulunma
-
-1. Fork yapın
-2. Feature branch oluşturun (`git checkout -b feature/AmazingFeature`)
-3. Commit yapın (`git commit -m 'Add some AmazingFeature'`)
-4. Push yapın (`git push origin feature/AmazingFeature`)
-5. Pull Request oluşturun
-
-## 📝 Lisans
-
-Bu proje **güvenlik amaçlı** geliştirilmiştir. Ticari kullanım için gerekli izinler alınmalıdır.
-
-## 📞 İletişim ve Destek
-
-- **Issues**: GitHub üzerinden sorun bildirin
-- **Discussions**: Geliştirme önerileri için
-- **Security**: Güvenlik açıkları için özel bildirim
-
-## 🎯 Sonuç
-
-Bu sistem, **güvenlik kontrol noktalarında araç altı tehlikeli madde tespiti** için geliştirilmiş **profesyonel bir yapay zeka çözümüdür**. 
-
-**Ana Başarılar:**
-- ✅ Tehlikeli madde tespitinde %100 başarı
-- ✅ Gerçek zamanlı çalışma
-- ✅ Yüksek güven skorları
-- ✅ Güvenlik için kullanılabilir
-
-**Sistem artık güvenlik için tamamen kullanılabilir durumda!** 🎉
-
----
-
-**🚗 Bu sistem araç altı güvenlik kontrolü için geliştirilmiştir. Güvenlik personeli tarafından kullanılmalıdır.** 
+1. Gerçek saha verisi toplamak; mümkünse tehlikeli nesne konumunu işaretleyip (YOLO gibi) **nesne tespitine** geçmek.
+2. Grad-CAM ile modelin görüntüde nereye baktığını göstermek.
+3. Çoklu kamera, web arayüzü, güvenlik sistemi entegrasyonu.

@@ -1,0 +1,18 @@
+{
+  "models": [
+    "improved_vehicle_underneath_model.keras"
+  ],
+  "backbones": [
+    "EfficientNetB0"
+  ],
+  "preprocess": "raw",
+  "threshold": 0.5100000000000001,
+  "class_names": [
+    "YabanciMaddeOlan",
+    "YabanciMaddeOlmayan"
+  ],
+  "image_size": [
+    224,
+    224
+  ]
+}
