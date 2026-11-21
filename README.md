@@ -14,23 +14,26 @@ Kamera/Video → (ön filtre: araç altı görünüyor mu?) → EfficientNet sı
 
 1. **Ön filtre** (klasik OpenCV): kadrajda koyu, geniş, yatay yapılı bir araç altı var mı? (`--no-gate` ile kapatılır)
 2. **Model**: ImageNet ile ön eğitilmiş EfficientNet (transfer learning). Çıktı: `P(YabanciMaddeOlan)`.
-3. **Karar**: olasılık, eğitimde doğrulama setinden seçilen **eşiğin** (varsayılan 0.40, yani 0.5'ten daha hassas) üstündeyse tehlikeli sayılır. Tek kareye değil, son birkaç kareye bakılır (yanlış alarm azalır).
+3. **Karar**: olasılık, eğitimde doğrulama setinden seçilen ve `model_meta.json` içine yazılan **eşiğin** (şu an 0.51) üstündeyse tehlikeli sayılır. Eşik, tehlikeli sınıfta recall ≥ %95 olacak şekilde seçilir ve 0.2–0.6 aralığına kırpılır. Tek kareye değil, son 7 tahminin çoğunluğuna bakılır (yanlış alarm azalır).
 4. **Kayıt**: alarmda görüntü `detections/` klasörüne, zaman ve olasılıkla `detections/log.csv` dosyasına yazılır.
 
 ## Kurulum
 
-Python 3.9 – 3.12 önerilir (TensorFlow henüz çok yeni Python sürümlerini desteklemeyebilir).
+Python 3.9 – 3.12 önerilir (3.13+ sürümlerinde TensorFlow kurulamayabilir; proje Python 3.12 ve TensorFlow 2.21 ile denendi). Sanal ortam önerilir:
 
-```bash
-pip install -r requirements.txt
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
+
+Depoda eğitilmiş model hazır gelir (`improved_vehicle_underneath_model.keras` + `model_meta.json`); doğrudan test ve canlı tespit çalıştırılabilir. Veri değişirse yeniden eğitin. Aşağıdaki komutlarda `python` yerine `.\.venv\Scripts\python.exe` kullanın.
 
 ## Kullanım
 
 | Amaç | Komut |
 |------|-------|
 | Modeli eğit | `python improved_training.py` |
-| Ensemble eğit (3 model) | `python ensemble_training.py` |
+| Ensemble eğit (3 model, henüz denenmedi/eğitilmedi) | `python ensemble_training.py` |
 | Test setini değerlendir | `python quick_improve.py` |
 | Tek görüntü test et | `python quick_improve.py --image yol/gorsel.jpg` |
 | Canlı kamera | `python improved_realtime.py` |
@@ -43,12 +46,15 @@ Canlı kontroller: **Q** çıkış, **R** kaynağı yeniden aç, **G** ön filtr
 
 ```
 common.py                  Ortak ayarlar, ön işleme, Predictor (eğitim = test = canlı aynı ön işleme)
-improved_training.py       2 aşamalı eğitim (başlık → ince ayar), eşik seçimi, model_meta.json
-ensemble_training.py       EfficientNetB0/B1/B2 ensemble, ensemble_meta.json
+improved_training.py       Sınıf dengeli ayrım, 2 aşamalı eğitim (başlık → ince ayar), eşik seçimi
+ensemble_training.py       EfficientNetB0/B1/B2 ensemble, ensemble_meta.json üretir
 quick_improve.py           Tüm test setini değerlendirir, eşik analizi, tek görüntü tahmini
 improved_realtime.py       Canlı tespit (yumuşatma, alarm, kayıt)
-AracAltiGorseller_Train/   Eğitim verisi (YabanciMaddeOlan / YabanciMaddeOlmayan)
-AracAltiGorseller_Test/    Test verisi
+improved_vehicle_underneath_model.keras   Eğitilmiş model
+model_meta.json            Model yolu, karar eşiği, sınıf adları
+improved_*_confusion_matrix.png, improved_training_history_*.png   Eğitim çıktıları
+AracAltiGorseller_Train/   Eğitim verisi (33 tehlikeli + 42 temiz; %25'i doğrulamaya ayrılır)
+AracAltiGorseller_Test/    Test verisi (8 tehlikeli + 8 temiz)
 ```
 
 ## Güncel sonuçlar (EfficientNetB0, eşik 0.51, 16 test görüntüsü)
@@ -59,7 +65,7 @@ AracAltiGorseller_Test/    Test verisi
 | Yanlış alarm | 2 / 8 temiz görüntü |
 | Doğruluk / ROC-AUC | %88 / 1.00 |
 
-Bu sayılar **çok küçük ve yapay zekâ ile üretilmiş bir test setinden** gelir; gerçek sahada aynı performans beklenmemelidir. Eşik doğrulama setinden seçildi; test seti eşik analizi için `python quick_improve.py` çalıştırın.
+Bu sayılar **çok küçük ve yapay zekâ ile üretilmiş bir test setinden** gelir; gerçek sahada aynı performans beklenmemelidir. Eşik doğrulama setinden seçildi (test setine bakılarak değil). Yanlış alarmlar `332.png` ve `334.png` görüntülerinde oluştu. Eşik duyarlılığı için `python quick_improve.py` çalıştırın.
 
 ## Önemli notlar (dürüst durum)
 
@@ -69,7 +75,8 @@ Bu sayılar **çok küçük ve yapay zekâ ile üretilmiş bir test setinden** g
   - Gerçek sahadan (farklı araç, ışık, zemin) görüntü toplayıp `Train/Test` klasörlerine eklemek en büyük iyileştirmedir.
 - Eski README'deki "%100 tespit / %0 yanlış negatif" iddiaları kaldırılmıştır; o sonuçlar 16 görüntülük testte ve tutarsız ön işleme ile elde edilmişti.
 - Test görüntüleri eğitim görüntülerinin yakın kopyası olmamalıdır (özellikle aynı prompt'tan üretilenler), aksi halde skor şişer.
-- Eski `improved_vehicle_underneath_model.h5` hatalı ön işlemeyle eğitilmişti ve yeni Keras'ta yüklenmiyor; artık kullanılmıyor (silinebilir). `improved_config.json` da kullanılmıyor (ayarlar kodda).
+- Eski `.h5` model ve `improved_config.json` depodan kaldırıldı: eski model hatalı ön işlemeyle eğitilmişti ve yeni Keras'ta yüklenmiyordu. Ayarlar artık kodda ve `model_meta.json` içinde.
+- Canlı tespitin kamera akışı başsız denendi; gerçek araç altı videosuyla ve ön filtrenin eşikleriyle henüz test edilmedi. Ortama uymazsa `--no-gate --debug` kullanın.
 - Bu sistem yanlış negatif (kaçırma) üretebilir. Kritik kontrol noktalarında mutlaka manuel kontrol ile birlikte kullanın.
 
 ## Geliştirme fikirleri
